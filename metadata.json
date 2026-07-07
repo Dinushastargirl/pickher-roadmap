@@ -1,0 +1,6 @@
+{
+  "name": "PickHer Mission Control",
+  "description": "A premium full-stack development dashboard and roadmap for tracking the MVP launch of the PickHer ride-hailing mobile application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
