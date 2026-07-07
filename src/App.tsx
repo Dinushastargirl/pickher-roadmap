@@ -61,22 +61,114 @@ export default function App() {
   const fetchDatabaseState = async () => {
     try {
       const res = await fetch('/api/state');
-      const data = await res.json();
-      if (data.success && data.state) {
-        setChecklist(data.state.checklist || []);
-        setBugs(data.state.bugs || []);
-        setJournal(data.state.journal || []);
-        setCompletedTasks(data.state.completedTasks || []);
-        setTaskNotes(data.state.taskNotes || {});
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.state) {
+          setChecklist(data.state.checklist || []);
+          setBugs(data.state.bugs || []);
+          setJournal(data.state.journal || []);
+          setCompletedTasks(data.state.completedTasks || []);
+          setTaskNotes(data.state.taskNotes || {});
 
-        // Set default selected day to Day 1
-        if (roadmapPhases[0]?.weeks?.[0]?.days?.[0]) {
-          setSelectedDay(roadmapPhases[0].weeks[0].days[0]);
+          // Set default selected day to Day 1
+          if (roadmapPhases[0]?.weeks?.[0]?.days?.[0]) {
+            setSelectedDay(roadmapPhases[0].weeks[0].days[0]);
+          }
+          return;
         }
       }
+      throw new Error('API server returned error or not ok status');
     } catch (e) {
-      console.error('Failed to load database state from full-stack server API:', e);
+      console.warn('Failed to load database state from full-stack server API, falling back to local storage:', e);
+      
+      const localDataStr = localStorage.getItem('pickher_database_state');
+      if (localDataStr) {
+        try {
+          const state = JSON.parse(localDataStr);
+          setChecklist(state.checklist || []);
+          setBugs(state.bugs || []);
+          setJournal(state.journal || []);
+          setCompletedTasks(state.completedTasks || []);
+          setTaskNotes(state.taskNotes || {});
+        } catch (jsonErr) {
+          loadDefaults();
+        }
+      } else {
+        loadDefaults();
+      }
+
+      // Set default selected day to Day 1
+      if (roadmapPhases[0]?.weeks?.[0]?.days?.[0]) {
+        setSelectedDay(roadmapPhases[0].weeks[0].days[0]);
+      }
     }
+  };
+
+  const loadDefaults = () => {
+    const defaultChecklist = [
+      { id: 'item-1', text: 'Node installed', completed: true },
+      { id: 'item-2', text: 'Git installed', completed: true },
+      { id: 'item-3', text: 'VS Code installed', completed: true },
+      { id: 'item-4', text: 'Android Studio installed', completed: false },
+      { id: 'item-5', text: 'Expo installed', completed: false },
+      { id: 'item-6', text: 'Passenger app created', completed: false },
+      { id: 'item-7', text: 'Driver app created', completed: false },
+      { id: 'item-8', text: 'Backend created', completed: false },
+      { id: 'item-9', text: 'Database configured', completed: false },
+      { id: 'item-10', text: 'First commit pushed', completed: false }
+    ];
+
+    const defaultBugs = [
+      {
+        id: 'bug-1',
+        title: 'WebSocket connection drop on driver client lock screen',
+        description: 'Socket connection detaches when the device goes to sleep mode. Need connection retry handshake with exponetial backoff.',
+        priority: 'High',
+        status: 'Backlog',
+        createdAt: '2026-07-06'
+      },
+      {
+        id: 'bug-2',
+        title: 'Stripe webhook 400 Bad Request signatures verification failure',
+        description: 'Signature verification fails in local sandbox tests. Requires rawBody parsing middleware buffering.',
+        priority: 'Medium',
+        status: 'In Progress',
+        createdAt: '2026-07-06'
+      },
+      {
+        id: 'bug-3',
+        title: 'Passenger app map polyline rendering stutter',
+        description: 'The navigation path lines stutter on minor location updates. Needs coordinate interpolation.',
+        priority: 'Low',
+        status: 'Testing',
+        createdAt: '2026-07-05'
+      },
+      {
+        id: 'bug-4',
+        title: 'Database connection pool timeout in staging',
+        description: 'Under peak simulated ride-hailing traffic, pool connections exhaust. Increased pool size to 50.',
+        priority: 'High',
+        status: 'Completed',
+        createdAt: '2026-07-04'
+      }
+    ];
+
+    const defaultJournal = [
+      {
+        id: 'journal-1',
+        date: '2026-07-06',
+        completed: 'Skeletal setup and git configurations configured for Passenger and Driver.',
+        challenges: 'Expo Router template compatibility with React 19 peer dependencies warnings.',
+        solutions: 'Resolved peer conflicts using npm install --legacy-peer-deps inside mobile clients.',
+        nextSteps: 'Create Docker layers for backend testing, write DB migration models.'
+      }
+    ];
+
+    setChecklist(defaultChecklist);
+    setBugs(defaultBugs);
+    setJournal(defaultJournal);
+    setCompletedTasks(['p1w1d1t1', 'p1w1d1t2', 'p1w1d1t3']);
+    setTaskNotes({});
   };
 
   const saveDatabaseState = async (updates: Partial<DashboardState>) => {
@@ -89,18 +181,29 @@ export default function App() {
       taskNotes: updates.taskNotes !== undefined ? updates.taskNotes : taskNotes,
     };
 
+    // Always mirror to localStorage as an additional safeguard and offline cache
+    try {
+      localStorage.setItem('pickher_database_state', JSON.stringify(mergedState));
+    } catch (e) {
+      console.error('LocalStorage write failed:', e);
+    }
+
     try {
       const res = await fetch('/api/state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mergedState)
       });
-      const data = await res.json();
-      if (data.success) {
-        showStatusBanner('Database synced successfully');
+      if (res.ok) {
+        const data = await res.ok ? await res.json() : null;
+        if (data && data.success) {
+          showStatusBanner('Database synced successfully');
+          return;
+        }
       }
+      throw new Error('Server responded with error');
     } catch (e) {
-      console.error('Failed to persist database state to server:', e);
+      console.warn('Failed to persist database state to server, using local cache:', e);
       showStatusBanner('Offline mode - local cache saved');
     }
   };
@@ -121,16 +224,34 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: authPassword })
       });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem('pickher_auth_token', data.token);
-        setAuthenticated(true);
-        setAuthPassword('');
-      } else {
-        setAuthError(data.error || 'Invalid passcode');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          localStorage.setItem('pickher_auth_token', data.token);
+          setAuthenticated(true);
+          setAuthPassword('');
+          return;
+        } else {
+          setAuthError(data.error || 'Invalid passcode');
+          return;
+        }
       }
+      // If server returned a non-2xx status (e.g. 404/500 on Vercel deployment), perform client-side login fallback
+      fallbackLocalLogin();
     } catch (err) {
-      setAuthError('Connection failure to validation endpoint.');
+      // Catch network errors (connection failure), fallback to client-side auth validation
+      fallbackLocalLogin();
+    }
+  };
+
+  const fallbackLocalLogin = () => {
+    if (authPassword === 'pickher2026') {
+      localStorage.setItem('pickher_auth_token', 'pickher-token-2026');
+      setAuthenticated(true);
+      setAuthPassword('');
+      showStatusBanner('Logged in via security key (Local Validation)');
+    } else {
+      setAuthError('Incorrect Mission Control credentials.');
     }
   };
 
